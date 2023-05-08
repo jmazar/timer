@@ -1,4 +1,13 @@
-﻿open System.Collections.Generic
+﻿// TODO
+// - Print all timers, highlight active one
+// - Clean up code, split some things into functions
+// - Do I want to let things just be strings or should I have some fixed enums of what my options are? I feel like the latter is better, but what if I spend time on something that isn't in the list?
+// - Better output for the timers
+// - Sqlite output for when I change tasks. I think this will really just be a timestamp + tag of what the new task is
+// - End day, printout stats. Total timers, context switches, etc.
+// - Config file?
+// - Compile to binary?
+open System.Collections.Generic
 
 type MyTimer =
     { Name: string
