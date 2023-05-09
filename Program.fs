@@ -63,10 +63,11 @@ let printer (inbox: MailboxProcessor<Task>) =
 
     let rec messageLoop (timers: Timers) (currentTask: Task option) =
         async {
-            let! msg = inbox.TryReceive(1000)
+            let! msg = inbox.TryReceive(100)
 
             let currentTask =
                 match msg with
+                // TODO match on neWTask as well and do stuff if quit
                 | Some newTask -> changeTimers newTask currentTask timers
                 | None -> printOutput currentTask timers
 
@@ -77,8 +78,6 @@ let printer (inbox: MailboxProcessor<Task>) =
 
 [<EntryPoint>]
 let main args =
-    printfn "Please select things"
-
     let printerAgent = MailboxProcessor.Start(printer)
 
     readInput printerAgent
