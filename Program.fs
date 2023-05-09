@@ -8,56 +8,69 @@
 // - Config file?
 // - Compile to binary?
 open System.Collections.Generic
+open System
 
-type MyTimer =
-    { Name: string
-      Timer: System.Diagnostics.Stopwatch }
+type Task =
+    | Work
+    | Bathroom
+    | Kitchen
+    | Eating
+    | Walk
+    | Quit
 
-let rec readInput (agent: MailboxProcessor<string>) =
-    let input = System.Console.ReadLine()
-    agent.Post input
+
+type Timers = Dictionary<Task, Diagnostics.Stopwatch>
+
+let rec readInput (agent: MailboxProcessor<Task>) =
+    let input = Console.ReadKey()
+
+    match input.Key with
+    | ConsoleKey.W -> agent.Post Work
+    | ConsoleKey.B -> agent.Post Bathroom
+    | ConsoleKey.K -> agent.Post Kitchen
+    | ConsoleKey.E -> agent.Post Eating
+    | ConsoleKey.L -> agent.Post Walk
+    | ConsoleKey.Q -> agent.Post Quit
+    | _ -> printfn "Unknown task shortcut"
+
     readInput agent
 
 
-let printOutput (timer: MyTimer option) =
-    match timer with
-    | Some timer ->
-        System.Console.Clear()
-        printfn "%s: %s" timer.Name (timer.Timer.Elapsed.ToString())
+let printOutput (currentTask: Task option) (timers: Timers) =
+    Console.Clear()
+    for kvp in timers do
+        printfn "%s: %s" (kvp.Key.ToString()) (kvp.Value.Elapsed.ToString())
+
+    currentTask
+
+let changeTimers newTask currentTask (timers: Timers) =
+    match currentTask with
+    | Some currentTask -> 
+        timers[currentTask].Stop()
     | None -> ()
+    timers[newTask].Start()
+    Some newTask
 
-let printer (inbox: MailboxProcessor<string>) =
-    let timers = Dictionary<string, MyTimer>()
 
-    let rec messageLoop (timers: Dictionary<string, MyTimer>) (currentTimer: MyTimer option) =
+let printer (inbox: MailboxProcessor<Task>) =
+    let timers = Timers()
+    timers.Add(Work, Diagnostics.Stopwatch())
+    timers.Add(Bathroom, Diagnostics.Stopwatch())
+    timers.Add(Kitchen, Diagnostics.Stopwatch())
+    timers.Add(Eating, Diagnostics.Stopwatch())
+    timers.Add(Walk, Diagnostics.Stopwatch())
+
+
+    let rec messageLoop (timers: Timers) (currentTask: Task option) =
         async {
             let! msg = inbox.TryReceive(1000)
 
-            let currentTimer =
+            let currentTask =
                 match msg with
-                | Some string ->
-                    match currentTimer with
-                    | Some timer -> timer.Timer.Stop()
-                    | None -> ()
+                | Some newTask -> changeTimers newTask currentTask timers
+                | None -> printOutput currentTask timers
 
-                    let currentTimer =
-                        match timers.ContainsKey(string) with
-                        | true -> timers[string]
-                        | false ->
-                            let newtimer =
-                                { Name = string
-                                  Timer = System.Diagnostics.Stopwatch() }
-
-                            timers.Add(string, newtimer)
-                            newtimer
-
-                    currentTimer.Timer.Start()
-                    Some currentTimer
-                | None ->
-                    printOutput currentTimer
-                    currentTimer
-
-            return! messageLoop timers currentTimer
+            return! messageLoop timers currentTask
         }
 
     messageLoop timers None
