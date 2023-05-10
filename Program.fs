@@ -1,5 +1,4 @@
 ﻿// TODO
-// - Highlight active one
 // - Sqlite output for when I change tasks. I think this will really just be a timestamp + tag of what the new task is
 // - End day, printout stats. Total timers, context switches, etc.
 // - Config file?
@@ -98,7 +97,5 @@ let printer (inbox: MailboxProcessor<Task>) =
 [<EntryPoint>]
 let main args =
     Console.Clear()
-    let printerAgent = MailboxProcessor.Start(printer)
-
-    readInput printerAgent
+    readInput (MailboxProcessor.Start(printer))
     0
