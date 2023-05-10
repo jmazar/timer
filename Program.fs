@@ -12,6 +12,8 @@ type Task =
     | Kitchen
     | Eating
     | Walk
+    | Talking
+    | Meeting
 
 
 type Timers = Dictionary<Task, Diagnostics.Stopwatch>
@@ -25,6 +27,8 @@ let rec readInput (agent: MailboxProcessor<Task>) =
     | ConsoleKey.K -> agent.Post Kitchen
     | ConsoleKey.E -> agent.Post Eating
     | ConsoleKey.A -> agent.Post Walk
+    | ConsoleKey.T -> agent.Post Talking
+    | ConsoleKey.M -> agent.Post Meeting
     | _ -> printfn "Unknown task shortcut"
 
     readInput agent
@@ -37,6 +41,8 @@ let getTaskString task =
     | Kitchen -> "[K]itchen"
     | Eating -> "[E]ating"
     | Walk -> "W[a]lk"
+    | Talking -> "[T]alking"
+    | Meeting -> "[M]eeting"
 
 let printOutput (currentTask: Task option) (timers: Timers) contextSwitches =
     Console.SetCursorPosition(0, 0)
@@ -71,6 +77,8 @@ let printer (inbox: MailboxProcessor<Task>) =
     timers.Add(Kitchen, Diagnostics.Stopwatch())
     timers.Add(Eating, Diagnostics.Stopwatch())
     timers.Add(Walk, Diagnostics.Stopwatch())
+    timers.Add(Talking, Diagnostics.Stopwatch())
+    timers.Add(Meeting, Diagnostics.Stopwatch())
 
 
     let rec messageLoop (timers: Timers) (currentTask: Task option) numContextSwitches =
