@@ -14,9 +14,16 @@ type Task =
     | Walk
     | Talking
     | Meeting
+    | Hide
 
 
 type Timers = Dictionary<Task, Diagnostics.Stopwatch>
+
+type State =
+    { timers: Timers
+      currentTask: Task option
+      hideOutput: bool
+      numContextSwitches: int }
 
 let rec readInput (agent: MailboxProcessor<Task>) =
     let input = Console.ReadKey()
@@ -29,6 +36,7 @@ let rec readInput (agent: MailboxProcessor<Task>) =
     | ConsoleKey.A -> agent.Post Walk
     | ConsoleKey.T -> agent.Post Talking
     | ConsoleKey.M -> agent.Post Meeting
+    | ConsoleKey.H -> agent.Post Hide
     | _ -> printfn "Unknown task shortcut"
 
     readInput agent
@@ -43,31 +51,38 @@ let getTaskString task =
     | Walk -> "W[a]lk"
     | Talking -> "[T]alking"
     | Meeting -> "[M]eeting"
+    | _ -> ""
 
-let printOutput (currentTask: Task option) (timers: Timers) contextSwitches =
-    Console.SetCursorPosition(0, 0)
+let printTask task (timer: Diagnostics.Stopwatch) =
+    printfn "%-10s: %5s" (getTaskString task) (timer.Elapsed.ToString())
 
-    for kvp in timers do
-        match currentTask with
-        | Some task ->
-            if kvp.Key = task then
-                let esc = string (char 0x1B)
-                printfn "%s[32;1m%-10s: %5s%s[0m" esc (getTaskString kvp.Key) (kvp.Value.Elapsed.ToString()) esc
-            else
-                printfn "%-10s: %5s" (getTaskString kvp.Key) (kvp.Value.Elapsed.ToString())
-        | None -> printfn "%-10s: %5s" (getTaskString kvp.Key) (kvp.Value.Elapsed.ToString())
+let printColoredTask task (timer: Diagnostics.Stopwatch) =
+    let esc = string (char 0x1B)
+    printfn "%s[32;1m%-10s: %5s%s[0m" esc (getTaskString task) (timer.Elapsed.ToString()) esc
 
-    printfn "%-10s: %d" "Switches" contextSwitches
+let printOutput state =
+    if state.hideOutput then
+        Console.Clear()
+    else
+        Console.SetCursorPosition(0, 0)
 
-    currentTask
+        for kvp in state.timers do
+            match state.currentTask with
+            | Some task ->
+                if kvp.Key = task then
+                    printColoredTask kvp.Key kvp.Value
+                else
+                    printTask kvp.Key kvp.Value
+            | None -> printTask kvp.Key kvp.Value
+
+        printfn "%-10s: %d" "Switches" state.numContextSwitches
 
 let changeTimers newTask currentTask (timers: Timers) =
     match currentTask with
-    | Some currentTask -> timers[currentTask].Stop()
-    | None -> ()
+    | Some currentTask when currentTask <> Hide -> timers[currentTask].Stop()
+    | _ -> ()
 
     timers[newTask].Start()
-    Some newTask
 
 
 let printer (inbox: MailboxProcessor<Task>) =
@@ -80,27 +95,47 @@ let printer (inbox: MailboxProcessor<Task>) =
     timers.Add(Talking, Diagnostics.Stopwatch())
     timers.Add(Meeting, Diagnostics.Stopwatch())
 
+    let initialState =
+        { timers = timers
+          currentTask = None
+          hideOutput = false
+          numContextSwitches = 0 }
 
-    let rec messageLoop (timers: Timers) (currentTask: Task option) numContextSwitches =
+
+    let rec messageLoop state =
         async {
             let! msg = inbox.TryReceive(100)
 
-            let newCurrentTask =
+            match msg with
+            | Some newTask when newTask = Hide -> printOutput {state with hideOutput = true}
+            | Some newTask -> changeTimers newTask state.currentTask timers
+            | None -> printOutput state
+
+            let nextTask =
                 match msg with
-                // TODO match on neWTask as well and do stuff if quit
-                | Some newTask -> changeTimers newTask currentTask timers
-                | None -> printOutput currentTask timers numContextSwitches
+                | Some task when task <> Hide -> Some task
+                | _ -> state.currentTask
 
             let newNumContextSwitches =
-                if newCurrentTask = currentTask then
-                    numContextSwitches
+                if nextTask = state.currentTask then
+                    state.numContextSwitches
                 else
-                    numContextSwitches + 1
+                    state.numContextSwitches + 1
 
-            return! messageLoop timers newCurrentTask newNumContextSwitches
+            let hideOutput =
+                match msg with
+                | Some task when task = Hide -> not state.hideOutput
+                | _ -> state.hideOutput
+
+            return!
+                messageLoop
+                    { state with
+                        currentTask = nextTask
+                        numContextSwitches = newNumContextSwitches
+                        hideOutput = hideOutput }
         }
 
-    messageLoop timers None 0
+    messageLoop initialState
 
 [<EntryPoint>]
 let main args =
