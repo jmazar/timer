@@ -5,6 +5,7 @@
 // - Compile to binary?
 open System.Collections.Generic
 open System
+open System.IO
 
 type Task =
     | Work
@@ -21,11 +22,12 @@ type Timers = Dictionary<Task, Diagnostics.Stopwatch>
 
 type State =
     { timers: Timers
-      currentTask: Task option
+      currentTask: Task
       currentTimer: Diagnostics.Stopwatch
-      totalTimer : Diagnostics.Stopwatch
+      totalTimer: Diagnostics.Stopwatch
       hideOutput: bool
-      numContextSwitches: int }
+      numContextSwitches: int
+      filename: String }
 
 let rec readInput (agent: MailboxProcessor<Task>) =
     let input = Console.ReadKey()
@@ -56,11 +58,18 @@ let getTaskString task =
     | _ -> ""
 
 let printTask task (timer: Diagnostics.Stopwatch) =
-    printfn "%-10s: %5s" (getTaskString task) (timer.Elapsed.ToString("hh':'mm':'ss"))
+    printfn "%-10s: %5s                  " (getTaskString task) (timer.Elapsed.ToString("hh':'mm':'ss"))
 
 let printColoredTask task (totalTaskTimer: Diagnostics.Stopwatch) (currenTimer: Diagnostics.Stopwatch) =
     let esc = string (char 0x1B)
-    printfn "%s[32;1m%-10s: %5s %5s%s[0m" esc (getTaskString task) (totalTaskTimer.Elapsed.ToString("hh':'mm':'ss")) (currenTimer.Elapsed.ToString("hh':'mm':'ss")) esc
+
+    printfn
+        "%s[32;1m%-10s: %5s %5s%s[0m"
+        esc
+        (getTaskString task)
+        (totalTaskTimer.Elapsed.ToString("hh':'mm':'ss"))
+        (currenTimer.Elapsed.ToString("hh':'mm':'ss"))
+        esc
 
 let printOutput state =
     if state.hideOutput then
@@ -69,28 +78,36 @@ let printOutput state =
         Console.SetCursorPosition(0, 0)
 
         for kvp in state.timers do
-            match state.currentTask with
-            | Some task ->
-                if kvp.Key = task then
-                    printColoredTask kvp.Key kvp.Value state.currentTimer
-                else
-                    printTask kvp.Key kvp.Value
-            | None -> printTask kvp.Key kvp.Value
+            if kvp.Key = state.currentTask then
+                printColoredTask kvp.Key kvp.Value state.currentTimer
+            else
+                printTask kvp.Key kvp.Value
 
         printfn "%-10s: %5s" "Total" (state.totalTimer.Elapsed.ToString("hh':'mm':'ss"))
         printfn "%-10s: %d" "Switches" state.numContextSwitches
 
-let changeTimers newTask currentTask (timers: Timers) (totalTimer: Diagnostics.Stopwatch) (currentTimer: Diagnostics.Stopwatch) =
-    Console.Clear()
-    match currentTask with
-    | Some currentTask when currentTask <> Hide -> timers[currentTask].Stop()
-    | _ -> ()
+let writeToFile filename task =
+    let string =
+        sprintf "%d,%s\n" (DateTimeOffset.Now.ToUnixTimeMilliseconds()) (task.ToString())
+
+    File.AppendAllText(filename, string)
+
+let changeTimers
+    newTask
+    currentTask
+    (timers: Timers)
+    (totalTimer: Diagnostics.Stopwatch)
+    (currentTimer: Diagnostics.Stopwatch)
+    filename
+    =
+
+    if currentTask <> Hide then
+        timers[currentTask].Stop()
+        writeToFile filename newTask
 
     timers[newTask].Start()
     totalTimer.Start()
     currentTimer.Restart()
-
-
 
 let printer (inbox: MailboxProcessor<Task>) =
     let timers = Timers()
@@ -104,11 +121,12 @@ let printer (inbox: MailboxProcessor<Task>) =
 
     let initialState =
         { timers = timers
-          currentTask = None
+          currentTask = Hide
           currentTimer = Diagnostics.Stopwatch()
           totalTimer = Diagnostics.Stopwatch()
           hideOutput = false
-          numContextSwitches = 0 }
+          numContextSwitches = 0
+          filename = sprintf "%s.times" (DateTime.Today.ToString("yyyyMMdd")) }
 
 
     let rec messageLoop state =
@@ -116,13 +134,15 @@ let printer (inbox: MailboxProcessor<Task>) =
             let! msg = inbox.TryReceive(100)
 
             match msg with
-            | Some newTask when newTask = Hide -> printOutput {state with hideOutput = true}
-            | Some newTask -> changeTimers newTask state.currentTask timers state.totalTimer state.currentTimer
+            | Some newTask when newTask = Hide -> printOutput { state with hideOutput = true }
+            | Some newTask ->
+                if state.currentTask <> newTask then
+                    changeTimers newTask state.currentTask timers state.totalTimer state.currentTimer state.filename
             | None -> printOutput state
 
             let nextTask =
                 match msg with
-                | Some task when task <> Hide -> Some task
+                | Some task when task <> Hide -> task
                 | _ -> state.currentTask
 
             let newNumContextSwitches =
