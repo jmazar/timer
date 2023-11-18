@@ -22,6 +22,8 @@ type Timers = Dictionary<Task, Diagnostics.Stopwatch>
 type State =
     { timers: Timers
       currentTask: Task option
+      currentTimer: Diagnostics.Stopwatch
+      totalTimer : Diagnostics.Stopwatch
       hideOutput: bool
       numContextSwitches: int }
 
@@ -54,11 +56,11 @@ let getTaskString task =
     | _ -> ""
 
 let printTask task (timer: Diagnostics.Stopwatch) =
-    printfn "%-10s: %5s" (getTaskString task) (timer.Elapsed.ToString())
+    printfn "%-10s: %5s" (getTaskString task) (timer.Elapsed.ToString("hh':'mm':'ss"))
 
-let printColoredTask task (timer: Diagnostics.Stopwatch) =
+let printColoredTask task (totalTaskTimer: Diagnostics.Stopwatch) (currenTimer: Diagnostics.Stopwatch) =
     let esc = string (char 0x1B)
-    printfn "%s[32;1m%-10s: %5s%s[0m" esc (getTaskString task) (timer.Elapsed.ToString()) esc
+    printfn "%s[32;1m%-10s: %5s %5s%s[0m" esc (getTaskString task) (totalTaskTimer.Elapsed.ToString("hh':'mm':'ss")) (currenTimer.Elapsed.ToString("hh':'mm':'ss")) esc
 
 let printOutput state =
     if state.hideOutput then
@@ -70,19 +72,24 @@ let printOutput state =
             match state.currentTask with
             | Some task ->
                 if kvp.Key = task then
-                    printColoredTask kvp.Key kvp.Value
+                    printColoredTask kvp.Key kvp.Value state.currentTimer
                 else
                     printTask kvp.Key kvp.Value
             | None -> printTask kvp.Key kvp.Value
 
+        printfn "%-10s: %5s" "Total" (state.totalTimer.Elapsed.ToString("hh':'mm':'ss"))
         printfn "%-10s: %d" "Switches" state.numContextSwitches
 
-let changeTimers newTask currentTask (timers: Timers) =
+let changeTimers newTask currentTask (timers: Timers) (totalTimer: Diagnostics.Stopwatch) (currentTimer: Diagnostics.Stopwatch) =
+    Console.Clear()
     match currentTask with
     | Some currentTask when currentTask <> Hide -> timers[currentTask].Stop()
     | _ -> ()
 
     timers[newTask].Start()
+    totalTimer.Start()
+    currentTimer.Restart()
+
 
 
 let printer (inbox: MailboxProcessor<Task>) =
@@ -98,6 +105,8 @@ let printer (inbox: MailboxProcessor<Task>) =
     let initialState =
         { timers = timers
           currentTask = None
+          currentTimer = Diagnostics.Stopwatch()
+          totalTimer = Diagnostics.Stopwatch()
           hideOutput = false
           numContextSwitches = 0 }
 
@@ -108,7 +117,7 @@ let printer (inbox: MailboxProcessor<Task>) =
 
             match msg with
             | Some newTask when newTask = Hide -> printOutput {state with hideOutput = true}
-            | Some newTask -> changeTimers newTask state.currentTask timers
+            | Some newTask -> changeTimers newTask state.currentTask timers state.totalTimer state.currentTimer
             | None -> printOutput state
 
             let nextTask =
